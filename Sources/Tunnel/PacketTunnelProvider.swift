@@ -30,7 +30,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         _ messageData: Data,
         completionHandler: ((Data?) -> Void)? = nil
     ) {
-        completionHandler(nil)
+        completionHandler?(nil)
     }
 
     override func sleep(completionHandler: @escaping () -> Void) {
