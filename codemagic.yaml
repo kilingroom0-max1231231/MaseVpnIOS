@@ -60,14 +60,18 @@ workflows:
       - name: Generate Xcode project
         script: xcodegen generate --spec project.yml
 
-      - name: Build unsigned device app
+      - name: Archive unsigned device app
         script: |
-          xcodebuild build \
+          xcodebuild archive \
             -project "$CM_BUILD_DIR/$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -configuration Release \
+            -archivePath "$CM_BUILD_DIR/build/MaseVpnIOS.xcarchive" \
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARIES_FOR_DISTRIBUTION=NO \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -76,16 +80,17 @@ workflows:
       - name: Pack unsigned IPA
         script: |
           mkdir -p "$CM_BUILD_DIR/build/Payload"
-          APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -type d -path "*/Build/Products/Release-iphoneos/*.app" | head -n 1)
+          APP_PATH=$(find "$CM_BUILD_DIR/build/MaseVpnIOS.xcarchive/Products/Applications" -maxdepth 1 -type d -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "Device .app not found"
+            echo "Archived device .app not found"
             exit 1
           fi
           cp -R "$APP_PATH" "$CM_BUILD_DIR/build/Payload/"
           cd "$CM_BUILD_DIR/build"
-          zip -r "MaseVpnIOS-unsigned.ipa" Payload
+          ditto -c -k --sequesterRsrc --keepParent Payload "MaseVpnIOS-unsigned.ipa"
     artifacts:
       - build/*.ipa
+      - build/*.xcarchive
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
