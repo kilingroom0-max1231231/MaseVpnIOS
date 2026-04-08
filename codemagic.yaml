@@ -85,6 +85,9 @@ workflows:
             echo "Archived device .app not found"
             exit 1
           fi
+          xattr -cr "$APP_PATH"
+          /usr/bin/codesign --force --deep --sign - --timestamp=none "$APP_PATH"
+          /usr/bin/codesign --verify --deep "$APP_PATH"
           cp -R "$APP_PATH" "$CM_BUILD_DIR/build/Payload/"
           cd "$CM_BUILD_DIR/build"
           ditto -c -k --sequesterRsrc --keepParent Payload "MaseVpnIOS-unsigned.ipa"

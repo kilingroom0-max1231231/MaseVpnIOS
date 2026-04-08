@@ -26,8 +26,10 @@ Codemagic:
 2. In Codemagic, select the repository and use YAML configuration.
 3. Start the `masevpn-ios-ui-simulator` workflow.
 4. Download the generated `.zip` with the unsigned simulator `.app`.
+5. To try installation through AltStore, start the `masevpn-ios-ui-ipa` workflow and download `MaseVpnIOS-unsigned.ipa`.
 
 Important:
 - auto-scan may not detect this app because the repo contains `project.yml`, not a pre-generated `.xcodeproj`
 - this workflow is for simulator builds only
-- building a real device `.ipa` still requires iOS code signing
+- the `masevpn-ios-ui-ipa` workflow creates an unsigned device `.ipa` by packaging the built `.app`
+- for App Store or a normally signed device build, proper iOS code signing is still required
