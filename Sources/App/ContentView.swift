@@ -93,7 +93,7 @@ private struct HomeView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, topInset + 6)
-            .padding(.bottom, 28)
+            .padding(.bottom, 104)
         }
     }
 
@@ -111,6 +111,7 @@ private struct HomeView: View {
 private struct SettingsView: View {
     @ObservedObject var viewModel: MaseVpnViewModel
     let topInset: CGFloat
+    @FocusState private var isSubscriptionFieldFocused: Bool
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -126,9 +127,14 @@ private struct SettingsView: View {
                         TextField("https://...", text: $viewModel.settings.subscriptionURL)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
+                            .submitLabel(.done)
+                            .focused($isSubscriptionFieldFocused)
                             .padding(16)
                             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                             .foregroundStyle(MasePalette.textPrimary)
+                            .onSubmit {
+                                isSubscriptionFieldFocused = false
+                            }
 
                         PrimaryButton(title: "Обновить подписку", action: viewModel.refreshSubscription)
                     }
@@ -163,7 +169,16 @@ private struct SettingsView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, topInset + 6)
-            .padding(.bottom, 28)
+            .padding(.bottom, 104)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Готово") {
+                    isSubscriptionFieldFocused = false
+                }
+            }
         }
     }
 }

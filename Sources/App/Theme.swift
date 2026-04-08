@@ -47,13 +47,15 @@ struct GlassCard<Content: View>: View {
     }
 
     var body: some View {
-        content
-            .padding(padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(
-                interactive ? .regular.interactive() : .regular,
-                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            )
-            .shadow(color: MasePalette.shadow, radius: 18, y: 8)
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .padding(padding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(
+            interactive ? .regular.interactive() : .regular,
+            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        )
+        .shadow(color: MasePalette.shadow, radius: 18, y: 8)
     }
 }

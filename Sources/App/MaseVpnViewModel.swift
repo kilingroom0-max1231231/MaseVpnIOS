@@ -8,6 +8,8 @@ final class MaseVpnViewModel: ObservableObject {
     @Published var vpnStatus = VpnStatusSnapshot()
     @Published var selectedTab: AppTab = .home
 
+    private let iosVpnManager = IOSVpnManager()
+    private let subscriptionRepository = SubscriptionRepository()
     private var timerTask: Task<Void, Never>?
 
     var selectedServer: ServerEntry? {
@@ -39,23 +41,37 @@ final class MaseVpnViewModel: ObservableObject {
 
     func refreshSubscription() {
         settings.subscriptionURL = settings.subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if settings.subscriptionURL.isEmpty {
+
+        guard !settings.subscriptionURL.isEmpty else {
             vpnStatus.lastError = "Введите ссылку подписки."
             vpnStatus.status = .error
             return
         }
 
+        vpnStatus.isBusy = true
         vpnStatus.lastError = nil
-        servers = ServerEntry.mocks.shuffled().map { server in
-            var updated = server
-            updated.pingMs = Int.random(in: 35...110)
-            updated.available = Bool.random() ? true : server.available
-            updated.lastError = updated.available ? nil : "Нет ответа"
-            return updated
-        }
 
-        if settings.selectedServerId == nil {
-            settings.selectedServerId = servers.first?.id
+        Task {
+            defer { vpnStatus.isBusy = false }
+
+            do {
+                let fetched = try await subscriptionRepository.fetchServers(subscriptionURL: settings.subscriptionURL)
+                servers = fetched
+
+                if let currentId = settings.selectedServerId, fetched.contains(where: { $0.id == currentId }) {
+                    settings.selectedServerId = currentId
+                } else {
+                    settings.selectedServerId = fetched.first?.id
+                }
+
+                if vpnStatus.status == .error {
+                    vpnStatus.status = .disconnected
+                }
+                vpnStatus.lastError = nil
+            } catch {
+                vpnStatus.lastError = error.localizedDescription
+                vpnStatus.status = .error
+            }
         }
     }
 
@@ -73,7 +89,8 @@ final class MaseVpnViewModel: ObservableObject {
         let best = servers
             .filter { $0.available && $0.pingMs != nil }
             .min { ($0.pingMs ?? Int.max) < ($1.pingMs ?? Int.max) }
-        settings.selectedServerId = best?.id
+
+        settings.selectedServerId = best?.id ?? servers.first?.id
     }
 
     func connect() {
@@ -88,6 +105,7 @@ final class MaseVpnViewModel: ObservableObject {
         vpnStatus.lastError = nil
 
         Task {
+            try? await installNativeProfileIfPossible(server: server)
             try? await Task.sleep(for: .milliseconds(900))
             vpnStatus.status = .connected
             vpnStatus.isBusy = false
@@ -110,6 +128,17 @@ final class MaseVpnViewModel: ObservableObject {
         }
     }
 
+    private func installNativeProfileIfPossible(server: ServerEntry) async throws {
+        let profile = TunnelProfile(
+            subscriptionURL: settings.subscriptionURL,
+            selectedServerId: server.id,
+            serverName: server.name
+        )
+
+        guard profile.isConfigured else { return }
+        try await iosVpnManager.installProfile(profile)
+    }
+
     private func startTrafficSimulation() {
         timerTask?.cancel()
         timerTask = Task { [weak self] in
@@ -128,7 +157,7 @@ final class MaseVpnViewModel: ObservableObject {
     }
 }
 
-enum AppTab {
+enum AppTab: Hashable {
     case home
     case settings
 }

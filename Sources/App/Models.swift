@@ -23,6 +23,20 @@ struct ServerEntry: Identifiable, Codable, Equatable {
     var name: String
     var host: String
     var port: Int
+    var uuid: String = ""
+    var network: String = "tcp"
+    var security: String = "none"
+    var flow: String = ""
+    var sni: String = ""
+    var fingerprint: String = "chrome"
+    var publicKey: String = ""
+    var shortId: String = ""
+    var spiderX: String = "/"
+    var path: String = "/"
+    var hostHeader: String = ""
+    var serviceName: String = ""
+    var alpn: [String] = []
+    var rawURL: String = ""
     var pingMs: Int?
     var available: Bool
     var lastError: String?

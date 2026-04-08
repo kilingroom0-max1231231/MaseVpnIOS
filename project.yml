@@ -12,6 +12,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources/App
+      - path: Sources/Shared
     settings:
       base:
         PRODUCT_NAME: MaseVpnIOS
@@ -22,3 +23,24 @@ targets:
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: NO
+        CODE_SIGN_ENTITLEMENTS: Sources/App/MaseVpnIOS.entitlements
+    dependencies:
+      - target: MaseVpnTunnel
+        embed: true
+
+  MaseVpnTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Tunnel
+      - path: Sources/Shared
+    settings:
+      base:
+        PRODUCT_NAME: MaseVpnTunnel
+        PRODUCT_BUNDLE_IDENTIFIER: online.maseai.vpnclient.ios.tunnel
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/Tunnel/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        CODE_SIGN_ENTITLEMENTS: Sources/Tunnel/MaseVpnTunnel.entitlements

@@ -82,9 +82,12 @@ struct ServerCard: View {
                         Text(server.name)
                             .font(.system(size: 19, weight: .semibold, design: .rounded))
                             .foregroundStyle(MasePalette.textPrimary)
+                            .lineLimit(1)
                         Text(server.endpointLabel)
                             .font(.system(size: 13, weight: .medium, design: .rounded))
                             .foregroundStyle(MasePalette.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                     Spacer()
                     HStack(spacing: 8) {
@@ -101,6 +104,7 @@ struct ServerCard: View {
                     Label(server.statusLabel, systemImage: server.available ? "checkmark.icloud" : "wifi.exclamationmark")
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(MasePalette.textSecondary)
+                        .lineLimit(1)
                     Spacer()
                     if active || selected {
                         Text(active ? "Активен" : "Выбран")
