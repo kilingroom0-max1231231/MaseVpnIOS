@@ -14,6 +14,7 @@ final class MaseVpnViewModel: ObservableObject {
     private let subscriptionRepository = SubscriptionRepository()
     private var trafficTask: Task<Void, Never>?
     private var healthCheckTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
     var selectedServer: ServerEntry? {
         servers.first { $0.id == settings.selectedServerId } ?? servers.first
@@ -21,6 +22,18 @@ final class MaseVpnViewModel: ObservableObject {
 
     var hasServers: Bool {
         !servers.isEmpty
+    }
+
+    init() {
+        settings = AppStateStore.loadSettings()
+        servers = AppStateStore.loadServers()
+
+        if settings.selectedServerId == nil || !servers.contains(where: { $0.id == settings.selectedServerId }) {
+            settings.selectedServerId = servers.first?.id
+        }
+
+        bindPersistence()
+        restartHealthCheckLoop()
     }
 
     func toggleConnection() {
@@ -57,15 +70,7 @@ final class MaseVpnViewModel: ObservableObject {
 
             do {
                 let fetched = try await subscriptionRepository.fetchServers(subscriptionURL: settings.subscriptionURL)
-                let normalized = fetched.map(resetHealthState(for:))
-
-                servers = normalized
-                settings.selectedServerId = normalized.first?.id
-
-                if vpnStatus.status == .error {
-                    vpnStatus.status = .disconnected
-                }
-
+                applyFetchedServers(fetched)
                 vpnStatus.lastError = nil
                 restartHealthCheckLoop()
                 await performHealthChecks(showNoServersError: false)
@@ -92,6 +97,21 @@ final class MaseVpnViewModel: ObservableObject {
     func updateHealthCheckConfiguration() {
         settings.healthCheckInterval = sanitizedHealthCheckInterval(settings.healthCheckInterval)
         restartHealthCheckLoop()
+    }
+
+    func sceneDidBecomeActive() {
+        restartHealthCheckLoop()
+    }
+
+    func sceneDidEnterBackground() {
+        stopHealthCheckLoop()
+        scheduleBackgroundRefreshIfNeeded()
+    }
+
+    func handleBackgroundRefresh() async {
+        await refreshSubscriptionSilentlyIfNeeded()
+        await performHealthChecks(showNoServersError: false)
+        scheduleBackgroundRefreshIfNeeded()
     }
 
     func connect() {
@@ -199,6 +219,7 @@ final class MaseVpnViewModel: ObservableObject {
         }
 
         handleActiveServerFailureIfNeeded()
+        scheduleBackgroundRefreshIfNeeded()
     }
 
     private func handleActiveServerFailureIfNeeded() {
@@ -233,6 +254,7 @@ final class MaseVpnViewModel: ObservableObject {
         stopHealthCheckLoop()
 
         guard settings.backgroundHealthChecksEnabled, !servers.isEmpty else {
+            BackgroundRefreshManager.cancelHealthRefresh()
             return
         }
 
@@ -252,6 +274,19 @@ final class MaseVpnViewModel: ObservableObject {
     private func stopHealthCheckLoop() {
         healthCheckTask?.cancel()
         healthCheckTask = nil
+    }
+
+    private func scheduleBackgroundRefreshIfNeeded() {
+        guard
+            settings.backgroundHealthChecksEnabled,
+            !servers.isEmpty,
+            !settings.subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            BackgroundRefreshManager.cancelHealthRefresh()
+            return
+        }
+
+        BackgroundRefreshManager.scheduleHealthRefresh(after: TimeInterval(currentHealthCheckInterval()))
     }
 
     private func currentHealthCheckInterval() -> Int {
@@ -282,6 +317,18 @@ final class MaseVpnViewModel: ObservableObject {
         try await iosVpnManager.installProfile(profile)
     }
 
+    private func refreshSubscriptionSilentlyIfNeeded() async {
+        let trimmedURL = settings.subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedURL.isEmpty else { return }
+
+        do {
+            let fetched = try await subscriptionRepository.fetchServers(subscriptionURL: trimmedURL)
+            applyFetchedServers(fetched)
+        } catch {
+            // Keep the last known server list during background refresh failures.
+        }
+    }
+
     private func startTrafficSimulation() {
         trafficTask?.cancel()
         trafficTask = Task { [weak self] in
@@ -297,6 +344,37 @@ final class MaseVpnViewModel: ObservableObject {
                 self.vpnStatus.traffic.downlinkRateBytesPerSec = Double.random(in: 45_000...210_000)
             }
         }
+    }
+
+    private func applyFetchedServers(_ fetched: [ServerEntry]) {
+        let normalized = fetched.map(resetHealthState(for:))
+        let currentId = settings.selectedServerId
+
+        servers = normalized
+
+        if let currentId, normalized.contains(where: { $0.id == currentId }) {
+            settings.selectedServerId = currentId
+        } else {
+            settings.selectedServerId = normalized.first?.id
+        }
+
+        if vpnStatus.status == .error {
+            vpnStatus.status = .disconnected
+        }
+    }
+
+    private func bindPersistence() {
+        $settings
+            .sink { settings in
+                AppStateStore.saveSettings(settings)
+            }
+            .store(in: &cancellables)
+
+        $servers
+            .sink { servers in
+                AppStateStore.saveServers(servers)
+            }
+            .store(in: &cancellables)
     }
 }
 
