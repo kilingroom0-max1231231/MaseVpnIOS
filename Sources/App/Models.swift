@@ -28,7 +28,7 @@ struct ServerEntry: Identifiable, Codable, Equatable {
     var lastError: String?
 
     var endpointLabel: String { "\(host):\(port)" }
-    var pingLabel: String { pingMs.map { "\($0) ms" } ?? "—" }
+    var pingLabel: String { pingMs.map { "\($0) мс" } ?? "—" }
     var statusLabel: String {
         if available { return "Доступен" }
         if let lastError, !lastError.isEmpty { return "Ошибка: \(lastError)" }
@@ -80,7 +80,7 @@ struct AppSettings: Codable, Equatable {
 enum ByteFormatter {
     static func string(from bytes: Int64) -> String {
         let value = Double(max(0, bytes))
-        let units = ["B", "KB", "MB", "GB", "TB"]
+        let units = ["Б", "КБ", "МБ", "ГБ", "ТБ"]
         var amount = value
         var index = 0
         while amount >= 1024, index < units.count - 1 {

@@ -44,6 +44,7 @@ final class MaseVpnViewModel: ObservableObject {
             vpnStatus.status = .error
             return
         }
+
         vpnStatus.lastError = nil
         servers = ServerEntry.mocks.shuffled().map { server in
             var updated = server
@@ -52,6 +53,7 @@ final class MaseVpnViewModel: ObservableObject {
             updated.lastError = updated.available ? nil : "Нет ответа"
             return updated
         }
+
         if settings.selectedServerId == nil {
             settings.selectedServerId = servers.first?.id
         }
@@ -99,6 +101,7 @@ final class MaseVpnViewModel: ObservableObject {
     func disconnect() {
         vpnStatus.status = .disconnecting
         vpnStatus.isBusy = true
+
         Task {
             try? await Task.sleep(for: .milliseconds(500))
             timerTask?.cancel()
@@ -111,9 +114,11 @@ final class MaseVpnViewModel: ObservableObject {
         timerTask?.cancel()
         timerTask = Task { [weak self] in
             guard let self else { return }
+
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard self.vpnStatus.status == .connected else { continue }
+
                 self.vpnStatus.traffic.uplinkBytes += Int64.random(in: 18_000...70_000)
                 self.vpnStatus.traffic.downlinkBytes += Int64.random(in: 45_000...210_000)
                 self.vpnStatus.traffic.uplinkRateBytesPerSec = Double.random(in: 18_000...70_000)
