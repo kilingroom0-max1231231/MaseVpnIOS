@@ -12,9 +12,9 @@ enum MasePalette {
     static let amber = Color(red: 1.00, green: 0.78, blue: 0.44)
 
     static let textPrimary = Color.white
-    static let textSecondary = Color.white.opacity(0.72)
-    static let textMuted = Color.white.opacity(0.52)
-    static let shadow = Color.black.opacity(0.18)
+    static let textSecondary = Color.white.opacity(0.82)
+    static let textMuted = Color.white.opacity(0.64)
+    static let shadow = Color.black.opacity(0.24)
 }
 
 extension View {
@@ -52,10 +52,18 @@ struct GlassCard<Content: View>: View {
         }
         .padding(padding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(interactive ? 0.045 : 0.03))
+        )
         .glassEffect(
             interactive ? .regular.interactive() : .regular,
             in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(interactive ? 0.18 : 0.10), lineWidth: 1)
+        }
         .shadow(color: MasePalette.shadow, radius: 18, y: 8)
     }
 }

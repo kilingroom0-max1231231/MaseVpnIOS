@@ -1,6 +1,6 @@
 import Foundation
 
-enum ConnectionStatus: String, Codable {
+enum ConnectionStatus: String, Codable, Sendable {
     case disconnected
     case connecting
     case connected
@@ -18,7 +18,7 @@ enum ConnectionStatus: String, Codable {
     }
 }
 
-struct ServerEntry: Identifiable, Codable, Equatable {
+struct ServerEntry: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var name: String
     var host: String
@@ -40,23 +40,32 @@ struct ServerEntry: Identifiable, Codable, Equatable {
     var pingMs: Int?
     var available: Bool
     var lastError: String?
+    var isChecking: Bool = false
 
     var endpointLabel: String { "\(host):\(port)" }
-    var pingLabel: String { pingMs.map { "\($0) мс" } ?? "—" }
-    var statusLabel: String {
-        if available { return "Доступен" }
-        if let lastError, !lastError.isEmpty { return "Ошибка: \(lastError)" }
-        return "Не проверен"
+
+    var pingLabel: String {
+        if isChecking {
+            return "Проверка..."
+        }
+        return pingMs.map { "\($0) мс" } ?? "—"
     }
 
-    static let mocks: [ServerEntry] = [
-        .init(id: "1", name: "Singapore 01", host: "sg-01.mase.ai", port: 443, pingMs: 42, available: true, lastError: nil),
-        .init(id: "2", name: "Germany 02", host: "de-02.mase.ai", port: 443, pingMs: 67, available: true, lastError: nil),
-        .init(id: "3", name: "Netherlands 01", host: "nl-01.mase.ai", port: 8443, pingMs: 95, available: false, lastError: "Нет ответа"),
-    ]
+    var statusLabel: String {
+        if isChecking {
+            return "Проверяется..."
+        }
+        if available {
+            return "Доступен"
+        }
+        if let lastError, !lastError.isEmpty {
+            return "Ошибка: \(lastError)"
+        }
+        return "Не проверен"
+    }
 }
 
-struct TrafficStats: Codable, Equatable {
+struct TrafficStats: Codable, Equatable, Sendable {
     var downlinkBytes: Int64 = 0
     var uplinkBytes: Int64 = 0
     var downlinkRateBytesPerSec: Double = 0
@@ -68,7 +77,7 @@ struct TrafficStats: Codable, Equatable {
     var downloadRateLabel: String { "\(ByteFormatter.string(from: Int64(downlinkRateBytesPerSec)))/с" }
 }
 
-struct VpnStatusSnapshot: Equatable {
+struct VpnStatusSnapshot: Equatable, Sendable {
     var status: ConnectionStatus = .disconnected
     var activeServerId: String?
     var activeServerName: String?
@@ -83,11 +92,12 @@ struct VpnStatusSnapshot: Equatable {
     }
 }
 
-struct AppSettings: Codable, Equatable {
+struct AppSettings: Codable, Equatable, Sendable {
     var subscriptionURL: String = ""
     var selectedServerId: String?
     var autoSelectBest: Bool = true
     var autoSwitchOnFailure: Bool = true
+    var backgroundHealthChecksEnabled: Bool = true
     var healthCheckInterval: Int = 15
 }
 
@@ -97,13 +107,16 @@ enum ByteFormatter {
         let units = ["Б", "КБ", "МБ", "ГБ", "ТБ"]
         var amount = value
         var index = 0
+
         while amount >= 1024, index < units.count - 1 {
             amount /= 1024
             index += 1
         }
+
         if index == 0 {
             return "\(Int(amount)) \(units[index])"
         }
+
         return String(format: "%.1f %@", amount, units[index])
     }
 }

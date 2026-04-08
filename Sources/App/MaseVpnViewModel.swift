@@ -4,20 +4,23 @@ import Foundation
 @MainActor
 final class MaseVpnViewModel: ObservableObject {
     @Published var settings = AppSettings()
-    @Published var servers: [ServerEntry] = ServerEntry.mocks
+    @Published var servers: [ServerEntry] = []
     @Published var vpnStatus = VpnStatusSnapshot()
     @Published var selectedTab: AppTab = .home
+    @Published private(set) var isRefreshingSubscription = false
+    @Published private(set) var isCheckingServers = false
 
     private let iosVpnManager = IOSVpnManager()
     private let subscriptionRepository = SubscriptionRepository()
-    private var timerTask: Task<Void, Never>?
+    private var trafficTask: Task<Void, Never>?
+    private var healthCheckTask: Task<Void, Never>?
 
     var selectedServer: ServerEntry? {
         servers.first { $0.id == settings.selectedServerId } ?? servers.first
     }
 
-    init() {
-        settings.selectedServerId = servers.first?.id
+    var hasServers: Bool {
+        !servers.isEmpty
     }
 
     func toggleConnection() {
@@ -32,11 +35,9 @@ final class MaseVpnViewModel: ObservableObject {
     }
 
     func selectServer(_ id: String) {
+        guard servers.contains(where: { $0.id == id }) else { return }
+
         settings.selectedServerId = id
-        if vpnStatus.status == .connected {
-            vpnStatus.activeServerId = id
-            vpnStatus.activeServerName = servers.first(where: { $0.id == id })?.name
-        }
     }
 
     func refreshSubscription() {
@@ -48,26 +49,26 @@ final class MaseVpnViewModel: ObservableObject {
             return
         }
 
-        vpnStatus.isBusy = true
+        isRefreshingSubscription = true
         vpnStatus.lastError = nil
 
         Task {
-            defer { vpnStatus.isBusy = false }
+            defer { isRefreshingSubscription = false }
 
             do {
                 let fetched = try await subscriptionRepository.fetchServers(subscriptionURL: settings.subscriptionURL)
-                servers = fetched
+                let normalized = fetched.map(resetHealthState(for:))
 
-                if let currentId = settings.selectedServerId, fetched.contains(where: { $0.id == currentId }) {
-                    settings.selectedServerId = currentId
-                } else {
-                    settings.selectedServerId = fetched.first?.id
-                }
+                servers = normalized
+                settings.selectedServerId = normalized.first?.id
 
                 if vpnStatus.status == .error {
                     vpnStatus.status = .disconnected
                 }
+
                 vpnStatus.lastError = nil
+                restartHealthCheckLoop()
+                await performHealthChecks(showNoServersError: false)
             } catch {
                 vpnStatus.lastError = error.localizedDescription
                 vpnStatus.status = .error
@@ -76,27 +77,39 @@ final class MaseVpnViewModel: ObservableObject {
     }
 
     func refreshPings() {
-        servers = servers.map { server in
-            var updated = server
-            updated.available = Bool.random(probability: 0.8)
-            updated.pingMs = updated.available ? Int.random(in: 28...140) : nil
-            updated.lastError = updated.available ? nil : "Нет ответа"
-            return updated
+        Task {
+            await performHealthChecks(showNoServersError: true)
         }
     }
 
     func pickBestServer() {
-        let best = servers
-            .filter { $0.available && $0.pingMs != nil }
-            .min { ($0.pingMs ?? Int.max) < ($1.pingMs ?? Int.max) }
+        guard !servers.isEmpty else { return }
 
-        settings.selectedServerId = best?.id ?? servers.first?.id
+        let best = bestAvailableServer(excluding: nil) ?? servers.first
+        settings.selectedServerId = best?.id
+    }
+
+    func updateHealthCheckConfiguration() {
+        settings.healthCheckInterval = sanitizedHealthCheckInterval(settings.healthCheckInterval)
+        restartHealthCheckLoop()
     }
 
     func connect() {
         guard let server = selectedServer else {
             vpnStatus.status = .error
-            vpnStatus.lastError = "Нет доступного сервера."
+            vpnStatus.lastError = "Сначала загрузите подписку и выберите сервер."
+            return
+        }
+
+        guard !server.isChecking else {
+            vpnStatus.status = .error
+            vpnStatus.lastError = "Дождитесь окончания проверки сервера."
+            return
+        }
+
+        guard server.available else {
+            vpnStatus.status = .error
+            vpnStatus.lastError = server.lastError ?? "Выбранный сервер недоступен."
             return
         }
 
@@ -105,8 +118,17 @@ final class MaseVpnViewModel: ObservableObject {
         vpnStatus.lastError = nil
 
         Task {
-            try? await installNativeProfileIfPossible(server: server)
-            try? await Task.sleep(for: .milliseconds(900))
+            do {
+                try await installNativeProfileIfPossible(server: server)
+            } catch {
+                vpnStatus.status = .error
+                vpnStatus.isBusy = false
+                vpnStatus.lastError = error.localizedDescription
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 900_000_000)
+
             vpnStatus.status = .connected
             vpnStatus.isBusy = false
             vpnStatus.activeServerId = server.id
@@ -121,11 +143,132 @@ final class MaseVpnViewModel: ObservableObject {
         vpnStatus.isBusy = true
 
         Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            timerTask?.cancel()
-            timerTask = nil
+            try? await iosVpnManager.stop()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+
+            trafficTask?.cancel()
+            trafficTask = nil
             vpnStatus = VpnStatusSnapshot()
         }
+    }
+
+    private func performHealthChecks(showNoServersError: Bool) async {
+        guard !servers.isEmpty else {
+            if showNoServersError {
+                vpnStatus.lastError = "Сначала загрузите подписку."
+                if vpnStatus.status != .connected {
+                    vpnStatus.status = .error
+                }
+            }
+            return
+        }
+
+        guard !isCheckingServers else { return }
+
+        isCheckingServers = true
+        let snapshot = servers
+        servers = snapshot.map { server in
+            var updated = server
+            updated.isChecking = true
+            updated.pingMs = nil
+            updated.lastError = nil
+            updated.available = false
+            return updated
+        }
+
+        let results = await ServerHealthChecker.measureAll(snapshot)
+        let resultMap = Dictionary(uniqueKeysWithValues: results.map { ($0.serverId, $0) })
+
+        servers = snapshot.map { server in
+            var updated = server
+            updated.isChecking = false
+
+            if let result = resultMap[server.id] {
+                updated.available = result.available
+                updated.pingMs = result.pingMs
+                updated.lastError = result.errorMessage
+            }
+
+            return updated
+        }
+
+        isCheckingServers = false
+
+        if settings.autoSelectBest {
+            pickBestServer()
+        }
+
+        handleActiveServerFailureIfNeeded()
+    }
+
+    private func handleActiveServerFailureIfNeeded() {
+        guard
+            settings.autoSwitchOnFailure,
+            vpnStatus.status == .connected,
+            let activeServerId = vpnStatus.activeServerId,
+            let activeServer = servers.first(where: { $0.id == activeServerId }),
+            !activeServer.available,
+            let fallback = bestAvailableServer(excluding: activeServerId)
+        else {
+            return
+        }
+
+        settings.selectedServerId = fallback.id
+        vpnStatus.activeServerId = fallback.id
+        vpnStatus.activeServerName = fallback.name
+        vpnStatus.lastError = "Активный сервер недоступен. Выбран \(fallback.name)."
+    }
+
+    private func bestAvailableServer(excluding excludedServerId: String?) -> ServerEntry? {
+        servers
+            .filter { server in
+                server.available &&
+                server.pingMs != nil &&
+                (excludedServerId == nil || server.id != excludedServerId)
+            }
+            .min { ($0.pingMs ?? Int.max) < ($1.pingMs ?? Int.max) }
+    }
+
+    private func restartHealthCheckLoop() {
+        stopHealthCheckLoop()
+
+        guard settings.backgroundHealthChecksEnabled, !servers.isEmpty else {
+            return
+        }
+
+        healthCheckTask = Task { [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                let seconds = self.currentHealthCheckInterval()
+                try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+
+                guard !Task.isCancelled else { break }
+                await self.performHealthChecks(showNoServersError: false)
+            }
+        }
+    }
+
+    private func stopHealthCheckLoop() {
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
+    }
+
+    private func currentHealthCheckInterval() -> Int {
+        sanitizedHealthCheckInterval(settings.healthCheckInterval)
+    }
+
+    private func sanitizedHealthCheckInterval(_ value: Int) -> Int {
+        min(max(value, 5), 300)
+    }
+
+    private func resetHealthState(for server: ServerEntry) -> ServerEntry {
+        var updated = server
+        updated.pingMs = nil
+        updated.available = false
+        updated.lastError = nil
+        updated.isChecking = false
+        return updated
     }
 
     private func installNativeProfileIfPossible(server: ServerEntry) async throws {
@@ -140,12 +283,12 @@ final class MaseVpnViewModel: ObservableObject {
     }
 
     private func startTrafficSimulation() {
-        timerTask?.cancel()
-        timerTask = Task { [weak self] in
+        trafficTask?.cancel()
+        trafficTask = Task { [weak self] in
             guard let self else { return }
 
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard self.vpnStatus.status == .connected else { continue }
 
                 self.vpnStatus.traffic.uplinkBytes += Int64.random(in: 18_000...70_000)
@@ -160,10 +303,4 @@ final class MaseVpnViewModel: ObservableObject {
 enum AppTab: Hashable {
     case home
     case settings
-}
-
-private extension Bool {
-    static func random(probability: Double) -> Bool {
-        Double.random(in: 0...1) <= probability
-    }
 }

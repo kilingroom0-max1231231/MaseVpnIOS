@@ -44,7 +44,7 @@ private struct HomeView: View {
                                 .foregroundStyle(MasePalette.textPrimary)
                                 .multilineTextAlignment(.center)
 
-                            Text(viewModel.vpnStatus.activeServerName ?? "Нажмите, чтобы подключиться")
+                            Text(subheadline)
                                 .font(.system(size: 16, weight: .medium, design: .rounded))
                                 .foregroundStyle(MasePalette.textSecondary)
                                 .multilineTextAlignment(.center)
@@ -52,16 +52,12 @@ private struct HomeView: View {
                             PulseConnectButton(
                                 status: viewModel.vpnStatus.status,
                                 busy: viewModel.vpnStatus.isBusy,
+                                disabled: !viewModel.hasServers || viewModel.isCheckingServers,
                                 action: viewModel.toggleConnection
                             )
 
                             if let error = viewModel.vpnStatus.lastError, !error.isEmpty {
-                                Text(error)
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundStyle(MasePalette.red)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .glassEffect(.regular.tint(MasePalette.red), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                ErrorBanner(error: error)
                             }
                         }
                         .frame(maxWidth: .infinity)
@@ -75,17 +71,43 @@ private struct HomeView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Серверы")
-                            .font(.system(size: 26, weight: .bold, design: .rounded))
-                            .foregroundStyle(MasePalette.textPrimary)
+                        HStack {
+                            Text("Серверы")
+                                .font(.system(size: 26, weight: .bold, design: .rounded))
+                                .foregroundStyle(MasePalette.textPrimary)
 
-                        ForEach(viewModel.servers) { server in
-                            ServerCard(
-                                server: server,
-                                selected: viewModel.settings.selectedServerId == server.id,
-                                active: viewModel.vpnStatus.activeServerId == server.id
-                            ) {
-                                viewModel.selectServer(server.id)
+                            Spacer()
+
+                            if viewModel.isCheckingServers {
+                                Text("Проверка...")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(MasePalette.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        Capsule()
+                                            .fill(MasePalette.amber.opacity(0.24))
+                                    )
+                                    .overlay {
+                                        Capsule()
+                                            .stroke(MasePalette.amber.opacity(0.45), lineWidth: 1)
+                                    }
+                            }
+                        }
+
+                        if viewModel.servers.isEmpty {
+                            EmptyServersCard {
+                                viewModel.selectedTab = .settings
+                            }
+                        } else {
+                            ForEach(viewModel.servers) { server in
+                                ServerCard(
+                                    server: server,
+                                    selected: viewModel.settings.selectedServerId == server.id,
+                                    active: viewModel.vpnStatus.activeServerId == server.id
+                                ) {
+                                    viewModel.selectServer(server.id)
+                                }
                             }
                         }
                     }
@@ -98,6 +120,10 @@ private struct HomeView: View {
     }
 
     private var headline: String {
+        if !viewModel.hasServers {
+            return "Загрузите подписку"
+        }
+
         switch viewModel.vpnStatus.status {
         case .disconnected: return "Нажмите, чтобы подключиться"
         case .connecting: return "Подключение..."
@@ -106,12 +132,40 @@ private struct HomeView: View {
         case .error: return "Ошибка подключения"
         }
     }
+
+    private var subheadline: String {
+        if !viewModel.hasServers {
+            return "Откройте настройки, вставьте ссылку подписки и загрузите список серверов."
+        }
+
+        return viewModel.vpnStatus.activeServerName ?? "Выберите сервер и нажмите кнопку подключения"
+    }
 }
 
 private struct SettingsView: View {
     @ObservedObject var viewModel: MaseVpnViewModel
     let topInset: CGFloat
     @FocusState private var isSubscriptionFieldFocused: Bool
+
+    private var backgroundChecksBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.settings.backgroundHealthChecksEnabled },
+            set: { newValue in
+                viewModel.settings.backgroundHealthChecksEnabled = newValue
+                viewModel.updateHealthCheckConfiguration()
+            }
+        )
+    }
+
+    private var intervalBinding: Binding<Int> {
+        Binding(
+            get: { viewModel.settings.healthCheckInterval },
+            set: { newValue in
+                viewModel.settings.healthCheckInterval = newValue
+                viewModel.updateHealthCheckConfiguration()
+            }
+        )
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -136,7 +190,15 @@ private struct SettingsView: View {
                                 isSubscriptionFieldFocused = false
                             }
 
-                        PrimaryButton(title: "Обновить подписку", action: viewModel.refreshSubscription)
+                        PrimaryButton(
+                            title: viewModel.isRefreshingSubscription ? "Загрузка..." : "Загрузить подписку",
+                            action: viewModel.refreshSubscription,
+                            isDisabled: viewModel.isRefreshingSubscription
+                        )
+
+                        if let error = viewModel.vpnStatus.lastError, !error.isEmpty {
+                            ErrorBanner(error: error)
+                        }
                     }
 
                     GlassCard(cornerRadius: 32, padding: 20) {
@@ -152,9 +214,17 @@ private struct SettingsView: View {
 
                         ToggleRow(
                             title: "Автопереключение",
-                            subtitle: "Переключаться на другой сервер при сбое",
+                            subtitle: "Менять сервер, если активный перестал отвечать",
                             isOn: $viewModel.settings.autoSwitchOnFailure
                         )
+
+                        ToggleRow(
+                            title: "Фоновая проверка",
+                            subtitle: "Автоматически проверять серверы, пока приложение открыто",
+                            isOn: backgroundChecksBinding
+                        )
+
+                        HealthCheckIntervalRow(interval: intervalBinding)
                     }
 
                     GlassCard(cornerRadius: 32, padding: 20) {
@@ -162,8 +232,17 @@ private struct SettingsView: View {
                             .font(.system(size: 22, weight: .bold, design: .rounded))
                             .foregroundStyle(MasePalette.textPrimary)
 
-                        SecondaryButton(title: "Обновить пинг", action: viewModel.refreshPings)
-                        SecondaryButton(title: "Выбрать лучший сервер", action: viewModel.pickBestServer)
+                        SecondaryButton(
+                            title: viewModel.isCheckingServers ? "Проверка..." : "Проверить серверы",
+                            action: viewModel.refreshPings,
+                            isDisabled: viewModel.isCheckingServers || viewModel.servers.isEmpty
+                        )
+
+                        SecondaryButton(
+                            title: "Выбрать лучший сервер",
+                            action: viewModel.pickBestServer,
+                            isDisabled: viewModel.servers.isEmpty
+                        )
                     }
                 }
             }
@@ -221,9 +300,58 @@ private struct AppBackdrop: View {
     }
 }
 
+private struct EmptyServersCard: View {
+    let openSettings: () -> Void
+
+    var body: some View {
+        GlassCard(cornerRadius: 30, padding: 20) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Список серверов пуст")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(MasePalette.textPrimary)
+
+                Text("Пока вы не загрузили подписку, серверы здесь не отображаются.")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(MasePalette.textSecondary)
+
+                SecondaryButton(title: "Открыть настройки", action: openSettings)
+            }
+        }
+    }
+}
+
+private struct ErrorBanner: View {
+    let error: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(MasePalette.red)
+
+            Text(error)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(MasePalette.textPrimary)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(MasePalette.red.opacity(0.16))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(MasePalette.red.opacity(0.42), lineWidth: 1)
+        }
+    }
+}
+
 private struct PrimaryButton: View {
     let title: String
     let action: () -> Void
+    var isDisabled: Bool = false
 
     var body: some View {
         Button(action: action) {
@@ -234,12 +362,14 @@ private struct PrimaryButton: View {
         }
         .buttonStyle(.glassProminent)
         .tint(MasePalette.blue)
+        .disabled(isDisabled)
     }
 }
 
 private struct SecondaryButton: View {
     let title: String
     let action: () -> Void
+    var isDisabled: Bool = false
 
     var body: some View {
         Button(action: action) {
@@ -249,6 +379,7 @@ private struct SecondaryButton: View {
                 .padding(.vertical, 16)
         }
         .buttonStyle(.glass)
+        .disabled(isDisabled)
     }
 }
 
@@ -263,13 +394,50 @@ private struct ToggleRow: View {
                 Text(title)
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
                     .foregroundStyle(MasePalette.textPrimary)
+
                 Text(subtitle)
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(MasePalette.textSecondary)
             }
+
             Spacer()
+
             Toggle("", isOn: $isOn)
                 .labelsHidden()
+        }
+        .padding(14)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
+private struct HealthCheckIntervalRow: View {
+    @Binding var interval: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Интервал проверки")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundStyle(MasePalette.textPrimary)
+
+                    Text("Серверы будут перепроверяться каждые \(interval) сек.")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(MasePalette.textSecondary)
+                }
+
+                Spacer()
+
+                Text("\(interval) c")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(MasePalette.textPrimary)
+            }
+
+            Stepper(value: $interval, in: 5...300, step: 5) {
+                EmptyView()
+            }
+            .labelsHidden()
+            .tint(MasePalette.cyan)
         }
         .padding(14)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
