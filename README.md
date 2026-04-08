@@ -20,3 +20,14 @@ How to open on macOS:
 2. Run `xcodegen generate` inside the `ios` directory.
 3. Open the generated `MaseVpnIOS.xcodeproj` in Xcode.
 4. Build and run on an iPhone simulator or device.
+
+Codemagic:
+1. Put `codemagic.yaml` in the repository root next to `project.yml`.
+2. In Codemagic, select the repository and use YAML configuration.
+3. Start the `masevpn-ios-ui-simulator` workflow.
+4. Download the generated `.zip` with the unsigned simulator `.app`.
+
+Important:
+- auto-scan may not detect this app because the repo contains `project.yml`, not a pre-generated `.xcodeproj`
+- this workflow is for simulator builds only
+- building a real device `.ipa` still requires iOS code signing
