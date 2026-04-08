@@ -50,24 +50,24 @@ final class IOSVpnManager: ObservableObject {
     }
 
     private func save(_ manager: NETunnelProviderManager) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        let _: Void = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             manager.saveToPreferences { error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 }
             }
         }
     }
 
     private func load(_ manager: NETunnelProviderManager) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        let _: Void = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             manager.loadFromPreferences { error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 }
             }
         }
@@ -76,7 +76,7 @@ final class IOSVpnManager: ObservableObject {
 
 private extension NETunnelProviderManager {
     static func loadAllFromPreferences() async throws -> [NETunnelProviderManager] {
-        try await withCheckedThrowingContinuation { continuation in
+        let managers: [NETunnelProviderManager] = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[NETunnelProviderManager], Error>) in
             loadAllFromPreferences { managers, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -85,5 +85,6 @@ private extension NETunnelProviderManager {
                 }
             }
         }
+        return managers
     }
 }

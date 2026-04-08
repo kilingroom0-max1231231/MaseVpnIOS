@@ -85,7 +85,7 @@ struct SubscriptionParser {
     }
 
     func parseVlessURI(_ uri: String) throws -> ServerEntry {
-        guard var components = URLComponents(string: uri) else {
+        guard let components = URLComponents(string: uri) else {
             throw SubscriptionException(message: "Не удалось разобрать VLESS-ссылку.")
         }
         guard components.scheme?.lowercased() == "vless" else {
