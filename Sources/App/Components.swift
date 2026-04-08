@@ -15,7 +15,9 @@ struct TopHeader: View {
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(MasePalette.textSecondary)
             }
+
             Spacer()
+
             StatusBadge(status: status)
         }
     }
@@ -39,9 +41,7 @@ struct StatusBadge: View {
             .foregroundStyle(tint)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().stroke(tint.opacity(0.34), lineWidth: 1))
-            .clipShape(Capsule())
+            .glassEffect(.regular, in: Capsule())
     }
 }
 
@@ -76,7 +76,7 @@ struct ServerCard: View {
 
     var body: some View {
         Button(action: action) {
-            GlassCard(cornerRadius: 30, padding: 18) {
+            GlassCard(cornerRadius: 30, padding: 18, interactive: true) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(server.name)
@@ -91,7 +91,6 @@ struct ServerCard: View {
                         Circle()
                             .fill(accent)
                             .frame(width: 10, height: 10)
-                            .shadow(color: accent.opacity(0.55), radius: 10)
                         Text(server.pingLabel)
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundStyle(MasePalette.textPrimary)
@@ -109,66 +108,10 @@ struct ServerCard: View {
                             .foregroundStyle(accent)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .overlay(Capsule().stroke(accent.opacity(0.32), lineWidth: 1))
-                            .clipShape(Capsule())
+                            .glassEffect(.regular.tint(accent), in: Capsule())
                     }
                 }
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .stroke(active ? accent.opacity(0.44) : (selected ? MasePalette.blue.opacity(0.34) : Color.clear), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct MaseTabDock: View {
-    @Binding var selection: AppTab
-
-    var body: some View {
-        GlassCard(cornerRadius: 32, padding: 10) {
-            HStack(spacing: 8) {
-                DockButton(title: "Главная", systemImage: "house.fill", active: selection == .home) {
-                    selection = .home
-                }
-                DockButton(title: "Настройки", systemImage: "gearshape.fill", active: selection == .settings) {
-                    selection = .settings
-                }
-            }
-        }
-        .shadow(color: MasePalette.glassShadow.opacity(0.7), radius: 40, x: 0, y: 20)
-    }
-}
-
-private struct DockButton: View {
-    let title: String
-    let systemImage: String
-    let active: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                Text(title)
-            }
-            .font(.system(size: 14, weight: .semibold, design: .rounded))
-            .foregroundStyle(active ? MasePalette.textPrimary : MasePalette.textSecondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 13)
-            .background {
-                if active {
-                    Capsule()
-                        .fill(.ultraThinMaterial)
-                }
-            }
-            .overlay(
-                Capsule()
-                    .stroke(active ? MasePalette.glassWhiteStrong : Color.clear, lineWidth: 1)
-            )
-            .shadow(color: active ? MasePalette.blue.opacity(0.18) : .clear, radius: 14, y: 8)
         }
         .buttonStyle(.plain)
     }
@@ -194,37 +137,28 @@ struct PulseConnectButton: View {
         ZStack {
             ForEach(0..<4, id: \.self) { index in
                 Circle()
-                    .stroke(
-                        LinearGradient(
-                            colors: [accent.opacity(0.34), Color.white.opacity(0.08)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1.4
-                    )
+                    .stroke(accent.opacity(0.12), lineWidth: 1.2)
                     .frame(width: 138 + CGFloat(index * 24), height: 138 + CGFloat(index * 24))
                     .scaleEffect(pulse ? 1.08 : 0.90)
-                    .opacity(pulse ? 0.06 : 0.24)
+                    .opacity(pulse ? 0.03 : 0.16)
                     .animation(
                         .easeOut(duration: 2.1)
                             .repeatForever()
                             .delay(Double(index) * 0.28),
                         value: pulse
                     )
+                    .allowsHitTesting(false)
             }
 
             Button(action: action) {
                 ZStack {
                     Circle()
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 128, height: 128)
-                    Circle()
                         .fill(
                             RadialGradient(
                                 colors: [
                                     Color.white.opacity(0.18),
-                                    accent.opacity(0.18),
-                                    MasePalette.backgroundBase.opacity(0.20)
+                                    accent.opacity(0.12),
+                                    MasePalette.backgroundBase.opacity(0.18)
                                 ],
                                 center: .topLeading,
                                 startRadius: 4,
@@ -232,18 +166,7 @@ struct PulseConnectButton: View {
                             )
                         )
                         .frame(width: 128, height: 128)
-                    Circle()
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                        .frame(width: 128, height: 128)
-                    Circle()
-                        .stroke(accent.opacity(0.22), lineWidth: 6)
-                        .blur(radius: 10)
-                        .frame(width: 110, height: 110)
-                    Ellipse()
-                        .fill(Color.white.opacity(0.14))
-                        .frame(width: 64, height: 20)
-                        .blur(radius: 6)
-                        .offset(y: -28)
+                        .allowsHitTesting(false)
 
                     if busy {
                         ProgressView()
@@ -253,11 +176,12 @@ struct PulseConnectButton: View {
                         Image(systemName: "power")
                             .font(.system(size: 44, weight: .regular, design: .rounded))
                             .foregroundStyle(accent)
-                            .shadow(color: accent.opacity(0.34), radius: 12)
                     }
                 }
+                .frame(width: 128, height: 128)
             }
             .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: Circle())
         }
         .frame(width: 214, height: 214)
         .onAppear { pulse = true }
