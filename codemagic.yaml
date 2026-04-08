@@ -42,3 +42,50 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+  masevpn-ios-ui-ipa:
+    name: MaseVpn iOS UI IPA
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: "MaseVpnIOS.xcodeproj"
+        XCODE_SCHEME: "MaseVpnIOS"
+        APP_NAME: "MaseVpnIOS"
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+
+      - name: Generate Xcode project
+        script: xcodegen generate --spec project.yml
+
+      - name: Build unsigned device app
+        script: |
+          xcodebuild build \
+            -project "$CM_BUILD_DIR/$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM=""
+
+      - name: Pack unsigned IPA
+        script: |
+          mkdir -p "$CM_BUILD_DIR/build/Payload"
+          APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -type d -path "*/Build/Products/Release-iphoneos/*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Device .app not found"
+            exit 1
+          fi
+          cp -R "$APP_PATH" "$CM_BUILD_DIR/build/Payload/"
+          cd "$CM_BUILD_DIR/build"
+          zip -r "MaseVpnIOS-unsigned.ipa" Payload
+    artifacts:
+      - build/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
